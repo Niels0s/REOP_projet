@@ -1690,9 +1690,7 @@ function destroy_solution(solution::Solution, instance::Instance, nb_remove::Int
     if !isempty(routes)
         idx_target = argmin([length(r.order_ids) for r in routes])
         removed_by_route = collect(routes[idx_target].order_ids)
-        if verbose
-            @info "destroy_solution: removing smallest route index=$idx_target with $(length(removed_by_route)) customers"
-        end
+        # Defer debug logging until we know sampled targets and total removed
     end
 
     # 2. Construire la liste des clients restants (après suppression de la route ciblée)
@@ -1712,9 +1710,7 @@ function destroy_solution(solution::Solution, instance::Instance, nb_remove::Int
         sel = sample(all_remaining, min(length(all_remaining), needed); replace=false)
         targets = Set(sel)
         sampled_targets = collect(targets)
-        if verbose
-            @info "destroy_solution: additionally removed $(length(targets)) random customers"
-        end
+        # defer
     end
 
     # 4. Construire les nouvelles routes en excluant la route cible et les clients échantillonnés
@@ -1733,8 +1729,9 @@ function destroy_solution(solution::Solution, instance::Instance, nb_remove::Int
     append!(removed, removed_by_route)
     append!(removed, collect(targets))
     sort!(removed)
+    # Emit a single aggregated debug line to avoid log flooding in verbose mode
     if verbose
-        @info "destroy_solution: total removed = $(length(removed))"
+        @debug "destroy_solution: idx_target=$(idx_target) removed_by_route=$(length(removed_by_route)) sampled_targets=$(length(sampled_targets)) total_removed=$(length(removed))"
     end
 
     # Quick sanity: none of the removed ids should remain in new_routes
@@ -1854,7 +1851,7 @@ function repair_solution(solution::Solution, instance::Instance)
 
     # Summarize skip counts (aggregate) to avoid log flooding
     if !isempty(skip_counts)
-        @info "repair_solution: skipped reinsertion for $(length(keys(skip_counts))) orders; counts=" * string(skip_counts)
+        @debug "repair_solution: skipped reinsertion for $(length(keys(skip_counts))) orders; counts=" * string(skip_counts)
     end
 
     # Final invariant check: every order should now appear at least once
@@ -1938,13 +1935,13 @@ function vnd_heuristic(instance::Instance; verbose::Bool=true)
         inserted_set = Set(repair_diag[:inserted])
         # Log a short trace when sets differ or when skip/forced events occurred
         if (rem_set != inserted_set || !isempty(repair_diag[:skip_counts]) || !isempty(repair_diag[:forced_singletons])) && verbose
-            @info "ILS Iter $i trace: removed_by_route=$(dest_diag[:removed_by_route]) sampled_targets=$(dest_diag[:sampled_targets]) removed_total=$(length(rem)) inserted_total=$(length(repair_diag[:inserted])) skips=$(length(keys(repair_diag[:skip_counts]))) forced=$(length(repair_diag[:forced_singletons]))"
+            @debug "ILS Iter $i trace: removed_by_route=$(dest_diag[:removed_by_route]) sampled_targets=$(dest_diag[:sampled_targets]) removed_total=$(length(rem)) inserted_total=$(length(repair_diag[:inserted])) skips=$(length(keys(repair_diag[:skip_counts]))) forced=$(length(repair_diag[:forced_singletons]))"
         end
 
         # Enforce uniqueness immediately after repair to avoid duplicates propagating
         cand, uniq_diag = ensure_solution_uniqueness(cand, instance)
         if ( !isempty(uniq_diag[:dropped]) || !isempty(uniq_diag[:added]) ) && verbose
-            @info "ILS Iter $i uniqueness_fix: dropped=$(uniq_diag[:dropped]) added=$(uniq_diag[:added])"
+            @debug "ILS Iter $i uniqueness_fix: dropped=$(uniq_diag[:dropped]) added=$(uniq_diag[:added])"
         end
 
         cand = variable_neighborhood_descent(cand, instance)

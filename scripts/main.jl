@@ -1,4 +1,13 @@
 using KIRO2025
+using Logging
+
+# Command-line flag: --verbose or -v to enable detailed debug logging
+verbose_flag = ("--verbose" in ARGS) || ("-v" in ARGS)
+if verbose_flag
+    global_logger(SimpleLogger(stderr, Logging.Debug))
+else
+    global_logger(SimpleLogger(stderr, Logging.Info))
+end
 
 data_dir = joinpath(@__DIR__, "..", "data-projet")
 instance_dir = joinpath(data_dir, "instances")
@@ -23,8 +32,8 @@ open(cost_file, "w") do io
         println("✓ ($(length(instance.orders)) orders)")
 
         print("  [2/2] Computing new heuristic... ")
-            # Run heuristic in quiet mode for batch runs. Set verbose=true to enable detailed per-iteration logs.
-            solution = KIRO2025.vnd_heuristic(instance; verbose=false)
+            # Run heuristic with the chosen verbosity
+            solution = KIRO2025.vnd_heuristic(instance; verbose=verbose_flag)
         solution_feasibility = is_feasible(solution, instance)
         if !solution_feasibility
             # Provide diagnostic info instead of immediately aborting so we can debug

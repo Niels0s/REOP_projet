@@ -115,3 +115,32 @@ Shows feasibility status and cost improvements for all solutions. **This is the 
 julia --project=. scripts/visualization.jl
 ```
 This requires to install some python packages (not needed, but can help you figure out what happens with your algorithms)
+
+## Quick start & debugging
+
+Run the full batch (default quiet mode):
+
+```bash
+julia --project=. scripts/main.jl
+```
+
+Enable verbose debug logging to see the detailed ruin/repair traces and diagnostics (useful for debugging a single instance):
+
+```bash
+julia --project=. scripts/main.jl --verbose
+# or
+julia --project=. scripts/main.jl -v
+```
+
+Notes:
+- The heuristic entry point is `KIRO2025.vnd_heuristic(instance; verbose=true)` and supports a `verbose` keyword to enable per-iteration diagnostics.
+- High-volume internal diagnostics (destroy/repair trace and skip summaries) are emitted at the debug log level and will appear when `--verbose` is used.
+
+Running tests:
+
+```bash
+julia --project=. test/ruin_repair_tests.jl
+julia --project=. test/ruin_repair_random.jl
+```
+
+If you want CI integration, I can add a minimal GitHub Actions workflow that runs these tests on push.
