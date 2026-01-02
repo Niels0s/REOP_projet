@@ -53,6 +53,33 @@ function is_feasible(solution::Solution, instance::Instance)
     return true
 end
 
+# Diagnostic helper: return missing and duplicated order ids and the visit counts
+function feasibility_issues(solution::Solution, instance::Instance)
+    nb_visits = zeros(Int, length(instance.orders))
+
+    for route in solution.routes
+        # Support both Route struct and NamedTuple-like routes
+        if hasproperty(route, :order_ids)
+            order_ids = route.order_ids
+        elseif isa(route, NamedTuple) && haskey(route, :order_ids)
+            order_ids = route.order_ids
+        else
+            # Fallback: try to iterate route as pair
+            order_ids = get(route, :order_ids, Int[])
+        end
+
+        for id in order_ids
+            if 1 <= id <= length(nb_visits)
+                nb_visits[id] += 1
+            end
+        end
+    end
+
+    missing = findall(x -> x == 0, nb_visits)
+    duplicated = findall(x -> x > 1, nb_visits)
+    return missing, duplicated, nb_visits
+end
+
 function rental_cost(solution::Solution, instance::Instance)
     total_rental_cost = 0.0
     for route in solution.routes

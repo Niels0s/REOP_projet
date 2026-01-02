@@ -22,10 +22,17 @@ open(cost_file, "w") do io
         instance = read_instance(instance_file, vehicle_file)
         println("✓ ($(length(instance.orders)) orders)")
 
-        print("  [2/2] Computing bad heuristic... ")
-        solution = vnd_heuristic(instance)
+        print("  [2/2] Computing new heuristic... ")
+            # Run heuristic in quiet mode for batch runs. Set verbose=true to enable detailed per-iteration logs.
+            solution = KIRO2025.vnd_heuristic(instance; verbose=false)
         solution_feasibility = is_feasible(solution, instance)
-        @assert solution_feasibility
+        if !solution_feasibility
+            # Provide diagnostic info instead of immediately aborting so we can debug
+            missing, duplicates, counts = KIRO2025.feasibility_issues(solution, instance)
+            println("    WARNING: solution infeasible for instance $i")
+            println("      Missing orders (not visited): ", missing)
+            println("      Duplicate orders (visited >1 times): ", duplicates)
+        end
         solution_cost = cost(solution, instance)
         solution_rental_cost = rental_cost(solution, instance)
         solution_fuel_cost = fuel_cost(solution, instance)

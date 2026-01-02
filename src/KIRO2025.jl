@@ -2,7 +2,8 @@ module KIRO2025
 
 using CSV
 using DataFrames
-using Random: Random
+using Random
+using StatsBase
 
 include("constants.jl")
 include("utils.jl")
