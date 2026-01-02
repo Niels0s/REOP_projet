@@ -1,0 +1,29 @@
+name: Build report PDF
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [ main, niels ]
+
+jobs:
+  build-pdf:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pandoc and TeX
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y pandoc texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended
+
+      - name: Build PDF
+        run: |
+          mkdir -p docs
+          pandoc docs/report.md -o docs/report.pdf --pdf-engine=xelatex
+
+      - name: Upload PDF artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-pdf
+          path: docs/report.pdf

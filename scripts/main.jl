@@ -6,6 +6,8 @@ verbose_flag = ("--verbose" in ARGS) || ("-v" in ARGS)
 # default heuristic params
 ils_iter = 50
 ruin_fraction = 0.15
+max_vnd_iter = 20
+enable_merge = true
 
 for arg in ARGS
     if startswith(arg, "--ils-iter=")
@@ -20,6 +22,16 @@ for arg in ARGS
         catch
             @warn "Invalid value for --ruin-fraction: $arg; using default $ruin_fraction"
         end
+    elseif startswith(arg, "--max-vnd-iter=")
+        try
+            global max_vnd_iter = parse(Int, split(arg, "=")[2])
+        catch
+            @warn "Invalid value for --max-vnd-iter: $arg; using default $max_vnd_iter"
+        end
+    elseif arg == "--disable-merge"
+        global enable_merge = false
+    elseif arg == "--enable-merge"
+        global enable_merge = true
     end
 end
 if verbose_flag
@@ -52,7 +64,7 @@ open(cost_file, "w") do io
 
         print("  [2/2] Computing new heuristic... ")
             # Run heuristic with the chosen verbosity and tunable params
-            solution = KIRO2025.vnd_heuristic(instance; verbose=verbose_flag, max_iter=ils_iter, ruin_fraction=ruin_fraction)
+            solution = KIRO2025.vnd_heuristic(instance; verbose=verbose_flag, max_iter=ils_iter, ruin_fraction=ruin_fraction, max_vnd_iter=max_vnd_iter, enable_merge=enable_merge)
         solution_feasibility = is_feasible(solution, instance)
         if !solution_feasibility
             # Provide diagnostic info instead of immediately aborting so we can debug

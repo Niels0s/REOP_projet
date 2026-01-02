@@ -78,6 +78,7 @@ Travel times vary by vehicle type and time of day (rush hour modeling):
 - **Multiple vehicle types** with different capacities and costs
 - **Time window constraints** for deliveries
 - **FIFO property** enforcement
+
 - **Real map visualization** with OpenStreetMap tiles of Paris
 
 ### Route Maps with Real Paris Streets

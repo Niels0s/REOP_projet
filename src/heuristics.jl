@@ -1972,13 +1972,13 @@ function repair_solution(solution::Solution, instance::Instance)
     return Solution(clean_routes), diag
 end
 
-function variable_neighborhood_descent(solution::Solution, instance::Instance)
+function variable_neighborhood_descent(solution::Solution, instance::Instance; max_iter::Int=20)
     # [CORRECTION] Plus de déstructuration de tuple (sol, bool)
     # On compare simplement les coûts pour savoir si on a amélioré
     
     improved = true
     iter = 0
-    while improved && iter < 10
+    while improved && iter < max_iter
         iter += 1
         improved = false
         current_cost = route_cost_sum(solution, instance)
@@ -2013,7 +2013,7 @@ function variable_neighborhood_descent(solution::Solution, instance::Instance)
     return solution
 end
 
-function vnd_heuristic(instance::Instance; verbose::Bool=true, max_iter::Int=50, ruin_fraction::Float64=0.15)
+function vnd_heuristic(instance::Instance; verbose::Bool=true, max_iter::Int=50, ruin_fraction::Float64=0.15, max_vnd_iter::Int=20, enable_merge::Bool=true)
     println("    [1/3] Construction Concentrique...")
     # Init 1
     s1 = solve_concentric(instance)
@@ -2054,7 +2054,7 @@ function vnd_heuristic(instance::Instance; verbose::Bool=true, max_iter::Int=50,
             @debug "ILS Iter $i uniqueness_fix: dropped=$(length(uniq_diag[:dropped])) added=$(length(uniq_diag[:added]))"
         end
 
-        cand = variable_neighborhood_descent(cand, instance)
+    cand = variable_neighborhood_descent(cand, instance; max_iter=max_vnd_iter)
 
         # Post-process with greedy route merging: try to merge pairs of routes
         function greedy_route_merge(sol::Solution, instance::Instance)
@@ -2117,7 +2117,9 @@ function vnd_heuristic(instance::Instance; verbose::Bool=true, max_iter::Int=50,
             return Solution(routes)
         end
 
-        cand = greedy_route_merge(cand, instance)
+        if enable_merge
+            cand = greedy_route_merge(cand, instance)
+        end
 
         c = route_cost_sum(cand, instance)
         if c < best_c - 0.1
