@@ -1543,7 +1543,7 @@ function two_opt_route(route::Route, instance::Instance)
     # Petite limite d'itérations pour la vitesse
     improved = true
     iter = 0
-    while improved && iter < 10
+    while improved && iter < 20
         improved = false
         iter += 1
         current_cost = route_cost(best_route, instance)
@@ -1596,20 +1596,22 @@ function local_relocate(solution::Solution, instance::Instance)
                     for pos in 0:length(routes[j].order_ids)
                         ids_dest_new = insert!(copy(routes[j].order_ids), pos+1, cust)
                         
-                        if check_feasibility(ids_dest_new, routes[j].family, instance)
-                            # Approximation : on garde les mêmes véhicules pour aller vite
-                            c_src = calculate_ids_cost(ids_src_new, routes[i].family, instance)
-                            c_dest = calculate_ids_cost(ids_dest_new, routes[j].family, instance)
-                            
-                            delta = (c_src + c_dest) - cost_current
-                            if delta < -0.1
-                                # Apply Move
-                                routes[i] = optimize_route_vehicle(ids_src_new, routes[i].family, instance)
-                                routes[j] = optimize_route_vehicle(ids_dest_new, routes[j].family, instance)
-                                improved = true
-                                break # Break pos loop
+                            if check_feasibility(ids_dest_new, routes[j].family, instance)
+                                # More accurate evaluation: allow vehicle re-selection for both source and destination
+                                opt_src = optimize_route_vehicle(ids_src_new, routes[i].family, instance)
+                                opt_dest = optimize_route_vehicle(ids_dest_new, routes[j].family, instance)
+                                c_src = calculate_ids_cost(opt_src.order_ids, opt_src.family, instance)
+                                c_dest = calculate_ids_cost(opt_dest.order_ids, opt_dest.family, instance)
+
+                                delta = (c_src + c_dest) - cost_current
+                                if delta < -0.1
+                                    # Apply Move with optimized vehicle choices
+                                    routes[i] = opt_src
+                                    routes[j] = opt_dest
+                                    improved = true
+                                    break # Break pos loop
+                                end
                             end
-                        end
                     end
                     if improved; break; end # Break cust loop
                 end
@@ -1776,26 +1778,36 @@ function repair_solution(solution::Solution, instance::Instance)
         end
 
         best_cost = Inf
-        best_pos = (-1, -1) # route_idx, pos
+        # route_idx, pos, family
+        best_pos = (-1, -1, -1)
 
         # 1. Try insert into existing routes
         for (i, r) in enumerate(routes)
-            if route_weight(r, instance) + instance.orders[cust].weight > instance.vehicles[r.family].max_capacity
+            # compute total weight if we insert this customer
+            total_w = route_weight(r, instance) + instance.orders[cust].weight
+
+            # consider candidate vehicle families that can carry the new total weight
+            candidate_families = [v.family for v in instance.vehicles if v.max_capacity >= total_w]
+            if isempty(candidate_families)
                 continue
             end
 
-            for pos in 0:length(r.order_ids)
-                new_ids = copy(r.order_ids)
-                insert!(new_ids, pos+1, cust)
+            # try each candidate vehicle family and all insertion positions
+            for fam in candidate_families
+                for pos in 0:length(r.order_ids)
+                    new_ids = copy(r.order_ids)
+                    insert!(new_ids, pos+1, cust)
 
-                if check_feasibility(new_ids, r.family, instance)
-                    c_before = calculate_ids_cost(r.order_ids, r.family, instance)
-                    c_after = calculate_ids_cost(new_ids, r.family, instance)
-                    delta = c_after - c_before
+                    # check feasibility using this candidate family
+                    if check_feasibility(new_ids, fam, instance)
+                        c_before = calculate_ids_cost(r.order_ids, r.family, instance)
+                        c_after = calculate_ids_cost(new_ids, fam, instance)
+                        delta = c_after - c_before
 
-                    if delta < best_cost
-                        best_cost = delta
-                        best_pos = (i, pos)
+                        if delta < best_cost
+                            best_cost = delta
+                            best_pos = (i, pos, fam)
+                        end
                     end
                 end
             end
@@ -1824,15 +1836,106 @@ function repair_solution(solution::Solution, instance::Instance)
             delete!(to_insert, cust)
             continue
         elseif best_pos[1] > -1
-            # Insert into existing route
-            r_idx, pos = best_pos
-            insert!(routes[r_idx].order_ids, pos+1, cust)
+            # Insert into existing route (possibly changing vehicle family)
+            r_idx, pos, fam = best_pos
+            # create the new route with the selected family and insert the customer
+            new_ids = copy(routes[r_idx].order_ids)
+            insert!(new_ids, pos+1, cust)
+            routes[r_idx] = Route(fam, new_ids)
             push!(inserted, cust)
             delete!(to_insert, cust)
             continue
         else
-            # Unable to insert: record and force a singleton route as last resort
-            @warn "repair_solution: could not feasibly insert customer $cust into any route; forcing singleton"
+            # Attempt a light local displacement: try to insert cust by removing one
+            # existing customer from a candidate route (limited attempts).
+            displaced_success = false
+
+            # iterate candidate routes (we re-use candidate_families logic from above)
+            for (i, r) in enumerate(routes)
+                # limit attempts per route to avoid blowup
+                max_displace_checks = min(3, length(r.order_ids))
+                for idx_disp in 1:max_displace_checks
+                    # choose a customer to displace (cycle through first entries)
+                    disp_cust = r.order_ids[idx_disp]
+
+                    # Build tentative route: insert cust then remove disp_cust
+                    # try all positions for cust
+                    for pos in 0:length(r.order_ids)
+                        temp_ids = copy(r.order_ids)
+                        insert!(temp_ids, pos+1, cust)
+                        # now remove the displaced customer if present
+                        filter!(x -> x != disp_cust, temp_ids)
+
+                        # try families that can carry this new route load
+                        total_w_temp = sum(instance.orders[o].weight for o in temp_ids)
+                        candidate_fams_temp = [v.family for v in instance.vehicles if v.max_capacity >= total_w_temp]
+
+                        for fam in candidate_fams_temp
+                            if check_feasibility(temp_ids, fam, instance)
+                                # Now attempt to reinsert disp_cust elsewhere (existing routes or new route)
+                                reinsertion_ok = false
+
+                                # Try existing routes (except the current route i)
+                                for (j, rj) in enumerate(routes)
+                                    if j == i; continue; end
+                                    # Try insertion positions in rj
+                                    for posj in 0:length(rj.order_ids)
+                                        new_ids_j = copy(rj.order_ids)
+                                        insert!(new_ids_j, posj+1, disp_cust)
+                                        # choose families that can carry the extra weight
+                                        total_w_j = route_weight(rj, instance) + instance.orders[disp_cust].weight
+                                        candidate_fams_j = [v.family for v in instance.vehicles if v.max_capacity >= total_w_j]
+                                        for famj in candidate_fams_j
+                                            if check_feasibility(new_ids_j, famj, instance)
+                                                # Successful reinsertion of displaced customer
+                                                # Apply changes: update route i and route j
+                                                routes[i] = Route(fam, temp_ids)
+                                                routes[j] = Route(famj, new_ids_j)
+                                                push!(inserted, cust)
+                                                push!(inserted, disp_cust)
+                                                reinsertion_ok = true
+                                                break
+                                            end
+                                        end
+                                        if reinsertion_ok; break; end
+                                    end
+                                    if reinsertion_ok; break; end
+                                end
+
+                                # If reinsertion into existing routes failed, try singleton for disp_cust
+                                if !reinsertion_ok
+                                    # try as singleton with smallest family that can carry it
+                                    v_single = findfirst(v -> v.max_capacity >= instance.orders[disp_cust].weight, instance.vehicles)
+                                    if v_single !== nothing
+                                        # apply changes: update route i and add singleton for disp_cust
+                                        routes[i] = Route(fam, temp_ids)
+                                        push!(routes, Route(instance.vehicles[v_single].family, [disp_cust]))
+                                        push!(inserted, cust)
+                                        push!(inserted, disp_cust)
+                                        reinsertion_ok = true
+                                    end
+                                end
+
+                                if reinsertion_ok
+                                    displaced_success = true
+                                    break
+                                end
+                            end
+                        end
+                        if displaced_success; break; end
+                    end
+                    if displaced_success; break; end
+                end
+                if displaced_success; break; end
+            end
+
+            if displaced_success
+                delete!(to_insert, cust)
+                continue
+            end
+
+            # Unable to insert even after displacement attempts: record and force a singleton route as last resort
+            @warn "repair_solution: could not feasibly insert customer $cust into any route even after displacement; forcing singleton"
             push!(routes, Route(instance.vehicles[end].family, [cust]))
             push!(inserted, cust)
             push!(forced_singletons, cust)
@@ -1910,7 +2013,7 @@ function variable_neighborhood_descent(solution::Solution, instance::Instance)
     return solution
 end
 
-function vnd_heuristic(instance::Instance; verbose::Bool=true)
+function vnd_heuristic(instance::Instance; verbose::Bool=true, max_iter::Int=50, ruin_fraction::Float64=0.15)
     println("    [1/3] Construction Concentrique...")
     # Init 1
     s1 = solve_concentric(instance)
@@ -1920,31 +2023,101 @@ function vnd_heuristic(instance::Instance; verbose::Bool=true)
     println("          Initial Cost: $(round(best_c, digits=2))")
     
     println("    [2/3] ILS Loop...")
-    max_iter = 50 
-    
+    # Use values passed as keywords so they can be tuned from CLI
     for i in 1:max_iter
-        nb_rem = max(2, round(Int, length(instance.orders) * 0.15))
+        nb_rem = max(2, round(Int, length(instance.orders) * ruin_fraction))
         # Destroy with diagnostics
         cand, rem, dest_diag = destroy_solution(best_sol, instance, nb_rem; verbose=verbose)
 
         # Repair with diagnostics (repair computes missing internally)
         cand, repair_diag = repair_solution(cand, instance)
 
-        # If diagnostics show mismatch, print a concise trace to help debugging
+        # If diagnostics show mismatch or other events, print a concise aggregated summary
         rem_set = Set(rem)
         inserted_set = Set(repair_diag[:inserted])
-        # Log a short trace when sets differ or when skip/forced events occurred
-        if (rem_set != inserted_set || !isempty(repair_diag[:skip_counts]) || !isempty(repair_diag[:forced_singletons])) && verbose
-            @debug "ILS Iter $i trace: removed_by_route=$(dest_diag[:removed_by_route]) sampled_targets=$(dest_diag[:sampled_targets]) removed_total=$(length(rem)) inserted_total=$(length(repair_diag[:inserted])) skips=$(length(keys(repair_diag[:skip_counts]))) forced=$(length(repair_diag[:forced_singletons]))"
+        skip_total = isempty(repair_diag[:skip_counts]) ? 0 : sum(values(repair_diag[:skip_counts]))
+        forced_total = length(repair_diag[:forced_singletons])
+        counts_removed = length(rem)
+        counts_inserted = length(repair_diag[:inserted])
+
+        if (rem_set != inserted_set || skip_total > 0 || forced_total > 0) && verbose
+            @debug "ILS Iter $i summary: removed=$counts_removed inserted=$counts_inserted skip_total=$skip_total forced=$forced_total"
+            # When a mismatch specifically occurs, include the sampled and removed_by_route lists for deeper debugging at debug level
+            if rem_set != inserted_set && verbose
+                @debug "ILS Iter $i trace: removed_by_route=$(dest_diag[:removed_by_route]) sampled_targets=$(dest_diag[:sampled_targets])"
+            end
         end
 
         # Enforce uniqueness immediately after repair to avoid duplicates propagating
         cand, uniq_diag = ensure_solution_uniqueness(cand, instance)
         if ( !isempty(uniq_diag[:dropped]) || !isempty(uniq_diag[:added]) ) && verbose
-            @debug "ILS Iter $i uniqueness_fix: dropped=$(uniq_diag[:dropped]) added=$(uniq_diag[:added])"
+            @debug "ILS Iter $i uniqueness_fix: dropped=$(length(uniq_diag[:dropped])) added=$(length(uniq_diag[:added]))"
         end
 
         cand = variable_neighborhood_descent(cand, instance)
+
+        # Post-process with greedy route merging: try to merge pairs of routes
+        function greedy_route_merge(sol::Solution, instance::Instance)
+            routes = copy(sol.routes)
+            improved = true
+            while improved
+                improved = false
+                best_saving = 0.0
+                best_pair = (-1, -1)
+                best_merged_route = nothing
+
+                nb = length(routes)
+                for a in 1:nb
+                    for b in (a+1):nb
+                        r1 = routes[a]
+                        r2 = routes[b]
+                        total_weight = route_weight(r1, instance) + route_weight(r2, instance)
+
+                        # Try four orientations
+                        orientations = [ (r1.order_ids, r2.order_ids), (r1.order_ids, reverse(r2.order_ids)),
+                                         (reverse(r1.order_ids), r2.order_ids), (reverse(r1.order_ids), reverse(r2.order_ids)) ]
+
+                        for (o1, o2) in orientations
+                            merged_ids = vcat(o1, o2)
+                            # Try viable vehicles that can carry merged load
+                            for v in instance.vehicles
+                                if v.max_capacity >= total_weight
+                                    if check_feasibility(merged_ids, v.family, instance)
+                                        merged_route = Route(v.family, merged_ids)
+                                        merged_cost = calculate_ids_cost(merged_route.order_ids, merged_route.family, instance)
+                                        cost_before = route_cost(r1, instance) + route_cost(r2, instance)
+                                        saving = cost_before - merged_cost
+                                        if saving > best_saving + 1e-6
+                                            best_saving = saving
+                                            best_pair = (a, b)
+                                            best_merged_route = merged_route
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+
+                if best_saving > 0.1 && best_pair[1] != -1
+                    a, b = best_pair
+                    # Replace routes a and b with merged route
+                    # remove higher index first
+                    if b > a
+                        deleteat!(routes, b)
+                        deleteat!(routes, a)
+                    else
+                        deleteat!(routes, a)
+                        deleteat!(routes, b)
+                    end
+                    push!(routes, best_merged_route)
+                    improved = true
+                end
+            end
+            return Solution(routes)
+        end
+
+        cand = greedy_route_merge(cand, instance)
 
         c = route_cost_sum(cand, instance)
         if c < best_c - 0.1

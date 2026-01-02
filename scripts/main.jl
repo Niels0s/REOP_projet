@@ -1,8 +1,27 @@
 using KIRO2025
 using Logging
 
-# Command-line flag: --verbose or -v to enable detailed debug logging
+# Parse command-line flags: --verbose / -v, --ils-iter=<N>, --ruin-fraction=<f>
 verbose_flag = ("--verbose" in ARGS) || ("-v" in ARGS)
+# default heuristic params
+ils_iter = 50
+ruin_fraction = 0.15
+
+for arg in ARGS
+    if startswith(arg, "--ils-iter=")
+        try
+            global ils_iter = parse(Int, split(arg, "=")[2])
+        catch
+            @warn "Invalid value for --ils-iter: $arg; using default $ils_iter"
+        end
+    elseif startswith(arg, "--ruin-fraction=")
+        try
+            global ruin_fraction = parse(Float64, split(arg, "=")[2])
+        catch
+            @warn "Invalid value for --ruin-fraction: $arg; using default $ruin_fraction"
+        end
+    end
+end
 if verbose_flag
     global_logger(SimpleLogger(stderr, Logging.Debug))
 else
@@ -32,8 +51,8 @@ open(cost_file, "w") do io
         println("✓ ($(length(instance.orders)) orders)")
 
         print("  [2/2] Computing new heuristic... ")
-            # Run heuristic with the chosen verbosity
-            solution = KIRO2025.vnd_heuristic(instance; verbose=verbose_flag)
+            # Run heuristic with the chosen verbosity and tunable params
+            solution = KIRO2025.vnd_heuristic(instance; verbose=verbose_flag, max_iter=ils_iter, ruin_fraction=ruin_fraction)
         solution_feasibility = is_feasible(solution, instance)
         if !solution_feasibility
             # Provide diagnostic info instead of immediately aborting so we can debug

@@ -144,3 +144,70 @@ julia --project=. test/ruin_repair_random.jl
 ```
 
 If you want CI integration, I can add a minimal GitHub Actions workflow that runs these tests on push.
+
+## Recent improvements (since first prototype)
+
+This project has received several robustness, diagnostics and usability improvements to make the ruin-&-recreate (ILS) pipeline safe, debuggable, and easier to tune. Summary of changes:
+
+- Defensive repair logic
+  - `repair_solution` now computes the set of missing orders internally from the candidate solution instead of relying on the caller to pass a list. This removes a class of mismatches that previously caused infeasible solutions or assertion failures.
+  - When a customer cannot be feasibly inserted, the algorithm forces a singleton "rescue" route and records the event in diagnostics (`:forced_singletons`). These events are reported at debug level.
+
+- Better diagnostics and non-aborting behavior
+  - The driver script `scripts/main.jl` no longer aborts on a single infeasible instance. Instead it emits diagnostic information (missing and duplicated orders) and continues processing all instances.
+  - Added `feasibility_issues(solution, instance)` helper to list missing and duplicated order ids.
+
+- Uniqueness enforcement
+  - A helper `ensure_solution_uniqueness` removes duplicate visits (keeps first occurrence) and reinserts missing orders as singleton routes. This is called immediately after repair to avoid duplicate propagation across iterations.
+  - Final finalization `finalize_solution_unique` performs a last pass to drop duplicates and add missing orders before returning the solution.
+
+- Logging & verbosity
+  - A `--verbose` / `-v` flag enables debug logging. High-volume diagnostics are logged at the Debug level and gated by this flag.
+  - Destroy/repair now return concise diagnostic maps (e.g., `:removed_by_route`, `:sampled_targets`, `:inserted`, `:skip_counts`) so you can inspect what happened in each iteration.
+  - The per-iteration debug traces were aggregated to concise counts to reduce log spam while preserving useful information.
+
+- Tunable CLI parameters
+  - You can now tune key ILS parameters from the command line:
+    - `--ils-iter=<N>` : number of ILS iterations (default 50)
+    - `--ruin-fraction=<f>` : fraction of orders to remove during ruin (default 0.15)
+
+  Example:
+
+  ```bash
+  julia --project=. scripts/main.jl --verbose --ils-iter=100 --ruin-fraction=0.12
+  ```
+
+- Improved insertion heuristic
+  - The repair phase (`repair_solution`) now attempts to insert a removed customer into existing routes by considering alternative vehicle families for that route when necessary. That means, before forcing a singleton rescue route, the algorithm will try to change the route's vehicle family (if a larger vehicle is available and feasible) to accommodate the extra load and time-window constraints. This reduces the number of forced singletons and improves feasibility and cost in many instances.
+
+- Stronger local search and route merging (quality improvements)
+  - The local relocate operator now evaluates candidate moves using optimized vehicle selection for both source and destination routes instead of assuming the current vehicles. That enables moves that change vehicle families when beneficial, yielding more accurate cost estimates and allowing better relocations.
+  - The Variable Neighborhood Descent (VND) loop was given more budget (inner VND iterations increased) to let local operators fully explore improvements (safer default: 20 internal iterations rather than 10).
+  - A new greedy route-merge post-processing step runs after VND: it tries to merge pairs of compatible routes (in all concatenation orientations) and reselects vehicle families for the merged route. Merging reduces rental and fuel costs when two short routes can be combined safely.
+
+These three small changes together improved solution quality in our tests (example batch run below reduced the total heuristic cost from ~36.8k to ~29.7k):
+
+```bash
+julia --project=. scripts/main.jl --ils-iter=50 --ruin-fraction=0.12
+# => Total Solution Heuristic Cost: ~29663.6 (example run on my machine)
+```
+
+- Tests
+  - Added unit tests for ruin & repair invariants (`test/ruin_repair_tests.jl`, `test/ruin_repair_random.jl`). Run them locally:
+
+  ```bash
+  julia --project=. test/ruin_repair_tests.jl
+  julia --project=. test/ruin_repair_random.jl
+  ```
+
+- Continuous Integration
+  - A minimal GitHub Actions workflow (`.github/workflows/ci.yml`) was added to run the tests and a short smoke-run of `scripts/main.jl` on push/PR.
+
+Notes and next steps
+- The repair algorithm still sometimes produces forced singletons; improving insertion heuristics (e.g., smarter vehicle selection, local reordering, and lookahead) will reduce these events and improve solution cost.
+- A lightweight profiler and more targeted unit tests for corner cases (time windows, capacity edge cases) are recommended next.
+
+If you'd like, I can now:
+- Wire `--ils-iter` and `--ruin-fraction` to a configuration file instead of CLI flags
+- Improve the insertion heuristic to reduce forced singletons (medium effort)
+- Add CI status badges to this README

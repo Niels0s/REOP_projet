@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, niels ]
+  pull_request:
+    branches: [ main, niels ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Julia
+      uses: julia-actions/setup-julia@v1
+      with:
+        version: '1.9'
+
+    - name: Install dependencies
+      run: |
+        julia --project=. -e "using Pkg; Pkg.instantiate(); Pkg.build()"
+
+    - name: Run unit tests
+      run: |
+        julia --project=. test/ruin_repair_tests.jl
+        julia --project=. test/ruin_repair_random.jl
+
+    - name: Smoke-run heuristic (short)
+      run: |
+        # Run a very short smoke run to ensure scripts/main.jl still executes
+        julia --project=. scripts/main.jl --ils-iter=2 --ruin-fraction=0.05

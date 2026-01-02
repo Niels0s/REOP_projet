@@ -1,0 +1,60 @@
+Instance 1:
+    Heuristic Cost: 447.09257230547894
+    Feasible: true
+    Rental Cost: 390.0
+    Fuel Cost: 49.894056788822525
+    Radius Cost: 7.198515516656436
+Instance 2:
+    Heuristic Cost: 772.815127613026
+    Feasible: true
+    Rental Cost: 670.0
+    Fuel Cost: 89.27109243467672
+    Radius Cost: 13.544035178349347
+Instance 3:
+    Heuristic Cost: 973.3941586889513
+    Feasible: true
+    Rental Cost: 800.0
+    Fuel Cost: 159.5261898792508
+    Radius Cost: 13.867968809700475
+Instance 4:
+    Heuristic Cost: 1690.7660381062146
+    Feasible: true
+    Rental Cost: 1450.0
+    Fuel Cost: 215.35392103843782
+    Radius Cost: 25.412117067776695
+Instance 5:
+    Heuristic Cost: 2184.834627974166
+    Feasible: true
+    Rental Cost: 1840.0
+    Fuel Cost: 306.65764151670504
+    Radius Cost: 38.17698645746061
+Instance 6:
+    Heuristic Cost: 2649.0976382351796
+    Feasible: true
+    Rental Cost: 2250.0
+    Fuel Cost: 354.68624387776237
+    Radius Cost: 44.41139435741685
+Instance 7:
+    Heuristic Cost: 3266.356464252293
+    Feasible: true
+    Rental Cost: 2700.0
+    Fuel Cost: 513.0530235555113
+    Radius Cost: 53.30344069678115
+Instance 8:
+    Heuristic Cost: 4524.26635897882
+    Feasible: true
+    Rental Cost: 3690.0
+    Fuel Cost: 770.0067904627833
+    Radius Cost: 64.25956851603682
+Instance 9:
+    Heuristic Cost: 5701.795310184942
+    Feasible: true
+    Rental Cost: 4750.0
+    Fuel Cost: 858.0438549033341
+    Radius Cost: 93.75145528160719
+Instance 10:
+    Heuristic Cost: 7453.179151749987
+    Feasible: true
+    Rental Cost: 6420.0
+    Fuel Cost: 932.4488399473005
+    Radius Cost: 100.73031180268694
